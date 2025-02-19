@@ -1,14 +1,15 @@
 ﻿<#
 .SYNOPSIS
-    CPU RAM Performance Snapshot/overview
+    CPU, RAM, Performance snapshot and pagefile overview
 
 .DESCRIPTION
-    This script will show you the concurrent CPU and RAM data of every Exchange
-    server in your organization.
+    This script will show you the concurrent CPU and RAM numbers, its 
+    concurrent utilization and pagefile data of every Exchange server
+    in your organization.
     
-    You can use the script to get a fast overview of CPU Cores and installed RAM
-    and furthermore the concurrent utilization of both.
-                                  |"
+    You can use this script to get a fast overview of basic recommended
+    CPU Core, RAM and pagefile settings and furthermore the concurrent CPU/RAM utilization.
+
     The network availability of all servers will be checked first and
     only available servers data will be collected.
                                               
@@ -20,19 +21,22 @@
     Script is optimized to run in Exchange on premise environments, because it will only
     collect data from Exchange Servers.
 
+    DO NOT RUN THIS SCRIPT in Powershell ISE.
+
 .EXAMPLE
-    .\cpuramperf.ps1
+    .\exchange_cpuramperf.ps1
 
  .VERSIONS
     12.02.2025 V1.0 Initial version
     14.02.2025 V1.1 Minor fixes
+    19.02.2025 V1.3 Pagefile, LogicalCores added, Output format changed
 
 .AUTHOR/COPYRIGHT: Steffen Meyer
 .ROLE: Cloud Solution Architect
 .COMPANY: Microsoft Deutschland GmbH
 
 #>
-$scriptversion = "V1.1_14.02.2025"
+$scriptversion = "V1.3_19.02.2025"
 
 try
 {
@@ -63,15 +67,28 @@ if (!(Get-PSSession).ConfigurationName -eq "Microsoft.Exchange")
 }
 
 #Detect, where the script is executed
-if (!(Get-ExchangeServer -Identity $env:COMPUTERNAME -ErrorAction SilentlyContinue))
+if ((Get-Host).name -ne 'Windows PowerShell ISE Host')
 {
-    write-host "`nATTENTION: Script is executed on a non-Exchangeserver...`n" -ForegroundColor Cyan
+    if (!(Get-ExchangeServer -Identity $env:COMPUTERNAME -ErrorAction SilentlyContinue))
+    {
+        write-host "`nATTENTION: Script is executed on a non-Exchangeserver...`n" -ForegroundColor Cyan
+    }
+}
+else
+{
+    Write-Host "`nATTENTION: Do not run this script in Powershell ISE, please use Windows- or Exchange Powershell!"
+    Return
 }
 
-Write-Host "----------------------------------------------"
-Write-Host "Current/Reference time stamp: $(Get-Date $now -Format "dd.MM.yyyy HH:mm")"
-Write-Host "Script version: $scriptversion"
-Write-Host "----------------------------------------------`n"
+Write-Host "`nCurrent time stamp: $(Get-Date $now -Format "dd.MM.yyyy HH:mm")"
+Write-Host "Script version:     $scriptversion"
+
+Write-Host "`n----------------------------------------------------------------------------"
+Write-Host "|           This script will check the CPU Core/RAM numbers,               |"
+Write-Host "|         concurrent CPU/RAM utilization and pagefile size and             |"
+Write-Host "|                 settings of all Exchange servers                         |" 
+Write-Host "|                  in this Exchange organization.                          |"
+Write-Host "----------------------------------------------------------------------------"
 
 $srvrs = Get-ExchangeServer | sort name
 
@@ -120,15 +137,76 @@ foreach ( $srvr in $srvrs )
 }
 Write-Progress -Completed -Activity "Done!"
 
+$result = @()
+$i = 0
 
 foreach ($server in $servers)
 {
+    #Progress bar
+    $i++
+    $status = "{0:N0}" -f ($i / $servers.count * 100)
+    Write-Progress -Activity "Analyzing server $server..." -Status "Processing server $i of $($servers.count) : $status% Completed" -PercentComplete ($i / $servers.count * 100)
+        
+    #Collect CPU / RAM information
+    $CPUProc = Get-CimInstance CIM_Processor -ComputerName $server.fqdn
 
-    $totalCores = (Get-CimInstance Win32_Computersystem -ComputerName $server.fqdn | Measure-Object -Property NumberOfLogicalProcessors -Sum).sum
-    $totalRam = (Get-CimInstance Win32_PhysicalMemory -ComputerName $server.fqdn | Measure-Object -Property capacity -Sum).Sum
+    $totalphysCores = ($CPUProc | Measure-Object -Property NumberOfEnabledCore -Sum).sum
+    $totallogiCores = ($CPUProc | Measure-Object -Property NumberOfLogicalProcessors -Sum).sum
+
+    $totalRam = (Get-CimInstance Win32_PhysicalMemory -ComputerName $server.fqdn | Measure-Object -Property capacity -Sum).Sum/1048576
            
     $cpuTime = (Get-Counter -ComputerName $server.fqdn '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
     $availMem = (Get-Counter -ComputerName $server.fqdn '\Memory\Available MBytes').CounterSamples.CookedValue
+
+    #Collect Pagefile information
+    $auto = (Get-CimInstance -ComputerName $server.fqdn Win32_ComputerSystem).AutomaticManagedPagefile
+    $initial = (Get-WmiObject -ComputerName $server.fqdn WIN32_Pagefile).initialsize
+    $maximum = (Get-WmiObject -ComputerName $server.fqdn WIN32_Pagefile).maximumsize
     
-    $server.Name + ': Cores: ' + ($totalCores).ToString("#,00") + ', RAM: ' + ($totalRam/1073741824).ToString("#,000") + ' GB, CPU %: ' + $cpuTime.ToString("#,00.00") + ' %, Avail.Mem.: ' + ($availMem/1024).ToString("#,000") + ' GB (' + (104857600 * $availMem / $totalRam).ToString("#,00.0") + ' %)'
+    #check Ex2019
+    if ($server.AdminDisplayVersion -like "*15.2*")
+    {
+        if (($initial -eq ($totalRam/4)) -and ($maximum -eq ($totalRam/4)))
+        {
+            $pagefile = "OK"
+        }
+        else
+        {
+            $pagefile = "WRONG"
+        }
+    }
+
+    #check Ex2013/2016
+    else
+    {
+        if ($totalRam -ge "32768")
+        {
+            if (($initial -eq "32778") -and ($maximum -eq "32778"))
+            {
+                $pagefile = "OK"
+            }
+            else
+            {
+                $pagefile = "WRONG"
+            }
+        }
+        else
+        {
+            if (($initial -eq ($totalRam + 10)) -and ($maximum -eq ($totalRam + 10)))
+            {
+                $pagefile = "OK"
+            }
+            else
+            {
+                $pagefile = "WRONG"
+            }
+        }   
+    
+    }
+    
+    $result += New-Object -Type PSObject -Prop @{Servername=$server.name;PhysCores=$totalphysCores;LogiCores=$totallogiCores;CoreDiff=$totallogiCores-$totalphysCores;'RAM GB'=$totalRam/1024;'CPU Util %'=$cpuTime;'Avail.Mem GB'=$availMem/1024;'Avail.Mem %'=100*$availMem/$totalRam;SysManaged=$auto;InitSize=$initial;MaxSize=$maximum;Pagefile=$pagefile}
 }
+Write-Progress -Completed -Activity "Done!"
+
+$result | format-table Servername,PhysCores,@{n="LogiCores";e={if($_.CoreDiff -eq 0){"$([char]27)[32m$($_.LogiCores)$([char]27)[0m"}else{"$([char]27)[31m$($_.LogiCores)$([char]27)[0m"}};a="right"},@{n='RAM GB';e={$_.'RAM GB'};a='right'},@{n='CPU Util %';e={if($_.'CPU Util %' -le 40){"$([char]27)[32m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}};a="right"},@{n='Avail.Mem GB';e={"{0:N0}" -f $_.'Avail.Mem GB'};a='right'},@{n='Avail.Mem %';e={if($_.'Avail.Mem %' -gt 25){"$([char]27)[32m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}};a="right"},SysManaged,InitSize,MaxSize,@{n="Pagefile";e={if($_.pagefile -eq "OK"){"$([char]27)[32m$($_.pagefile)$([char]27)[0m"}else{"$([char]27)[31m$($_.pagefile)$([char]27)[0m"}};a='right'}
+#END
