@@ -166,6 +166,24 @@ foreach ($server in $servers)
     #check Ex2019
     if ($server.AdminDisplayVersion -like "*15.2*")
     {
+        if (($totalRam -le "262144") -and ($totalRam -ge "131072"))
+        {
+            $RAMDiff = "OK"
+        }
+        else
+        {
+            $RAMDiff = "WRONG"
+        }
+        
+        if (($totallogiCores -le "48") -and ($totallogiCores -eq $totalphysCores))
+        {
+            $coreDiff = "OK"
+        }
+        else
+        {
+            $coreDiff = "WRONG"
+        }
+        
         if (($initial -eq ($totalRam/4)) -and ($maximum -eq ($totalRam/4)))
         {
             $pagefile = "OK"
@@ -179,6 +197,24 @@ foreach ($server in $servers)
     #check Ex2013/2016
     else
     {
+        if ($totalRam -le "196608")
+        {
+            $RAMDiff = "OK"
+        }
+        else
+        {
+            $RAMDiff = "WRONG"
+        }
+        
+        if (($totallogiCores -le "24") -and ($totallogiCores -eq $totalphysCores))
+        {
+            $coreDiff = "OK"
+        }
+        else
+        {
+            $coreDiff = "WRONG"
+        }
+        
         if ($totalRam -ge "32768")
         {
             if (($initial -eq "32778") -and ($maximum -eq "32778"))
@@ -204,9 +240,9 @@ foreach ($server in $servers)
     
     }
     
-    $result += New-Object -Type PSObject -Prop @{Servername=$server.name;PhysCores=$totalphysCores;LogiCores=$totallogiCores;CoreDiff=$totallogiCores-$totalphysCores;'RAM GB'=$totalRam/1024;'CPU Util %'=$cpuTime;'Avail.Mem GB'=$availMem/1024;'Avail.Mem %'=100*$availMem/$totalRam;SysManaged=$auto;InitSize=$initial;MaxSize=$maximum;Pagefile=$pagefile}
+    $result += New-Object -Type PSObject -Prop @{Servername=$server.name;PhysCores=$totalphysCores;LogiCores=$totallogiCores;CoreDiff=$coreDiff;'RAM GB'=$totalRam/1024;RAMDiff=$RAMDiff;'CPU Util %'=$cpuTime;'Avail.Mem GB'=$availMem/1024;'Avail.Mem %'=100*$availMem/$totalRam;SysManaged=$auto;InitSize=$initial;MaxSize=$maximum;Pagefile=$pagefile}
 }
 Write-Progress -Completed -Activity "Done!"
 
-$result | format-table Servername,PhysCores,@{n="LogiCores";e={if($_.CoreDiff -eq 0){"$([char]27)[32m$($_.LogiCores)$([char]27)[0m"}else{"$([char]27)[31m$($_.LogiCores)$([char]27)[0m"}};a="right"},@{n='RAM GB';e={$_.'RAM GB'};a='right'},@{n='CPU Util %';e={if($_.'CPU Util %' -le 40){"$([char]27)[32m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}};a="right"},@{n='Avail.Mem GB';e={"{0:N0}" -f $_.'Avail.Mem GB'};a='right'},@{n='Avail.Mem %';e={if($_.'Avail.Mem %' -gt 25){"$([char]27)[32m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}};a="right"},SysManaged,InitSize,MaxSize,@{n="Pagefile";e={if($_.pagefile -eq "OK"){"$([char]27)[32m$($_.pagefile)$([char]27)[0m"}else{"$([char]27)[31m$($_.pagefile)$([char]27)[0m"}};a='right'}
+$result | format-table Servername,PhysCores,@{n="LogiCores";e={if($_.CoreDiff -eq 'OK'){"$([char]27)[32m$($_.LogiCores)$([char]27)[0m"}else{"$([char]27)[31m$($_.LogiCores)$([char]27)[0m"}};a='right'},@{n='RAM GB';e={if($_.RAMDiff -eq 'OK'){"$([char]27)[32m$("{0:N0}" -f $_.'RAM GB')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N0}" -f $_.'RAM GB')$([char]27)[0m"}};a='right'},@{n='CPU Util %';e={if($_.'CPU Util %' -le 40){"$([char]27)[32m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}};a="right"},@{n='Avail.Mem GB';e={"{0:N0}" -f $_.'Avail.Mem GB'};a='right'},@{n='Avail.Mem %';e={if($_.'Avail.Mem %' -gt 25){"$([char]27)[32m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}};a="right"},SysManaged,InitSize,MaxSize,@{n="Pagefile";e={if($_.pagefile -eq 'OK'){"$([char]27)[32m$($_.pagefile)$([char]27)[0m"}else{"$([char]27)[31m$($_.pagefile)$([char]27)[0m"}};a='right'}
 #END
