@@ -30,13 +30,36 @@
     12.02.2025 V1.0 Initial version
     14.02.2025 V1.1 Minor fixes
     19.02.2025 V1.3 Pagefile, LogicalCores added, Output format changed
+    27.02.2025 V1.5 PerfCounter IDs
 
 .AUTHOR/COPYRIGHT: Steffen Meyer
 .ROLE: Cloud Solution Architect
 .COMPANY: Microsoft Deutschland GmbH
 
 #>
-$scriptversion = "V1.3_19.02.2025"
+$scriptversion = "V1.5_27.02.2025"
+
+function Get-Counters009
+{
+   param (
+      [Parameter(Mandatory=$false)]
+      $ServerFQDN=([System.Net.Dns]::GetHostByName($env:computerName)).hostname
+    )
+    
+    $counters009 = Invoke-Command -ComputerName $serverFQDN {(Get-ItemProperty -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\009" -Name Counter).counter.tolower()}
+    Return $counters009
+}
+
+function Get-CountersLocal
+{
+   param (
+      [Parameter(Mandatory=$false)]
+      $ServerFQDN=([System.Net.Dns]::GetHostByName($env:computerName)).hostname
+    )
+    
+    $counterslocal = Invoke-Command -ComputerName $serverFQDN {(Get-ItemProperty -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\CurrentLanguage" -Name Counter).Counter }
+    Return $counterslocal
+}
 
 try
 {
@@ -154,16 +177,36 @@ foreach ($server in $servers)
     $totallogiCores = ($CPUProc | Measure-Object -Property NumberOfLogicalProcessors -Sum).sum
 
     $totalRam = (Get-CimInstance Win32_PhysicalMemory -ComputerName $server.fqdn | Measure-Object -Property capacity -Sum).Sum/1048576
-           
-    $cpuTime = (Get-Counter -ComputerName $server.fqdn '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
-    $availMem = (Get-Counter -ComputerName $server.fqdn '\Memory\Available MBytes').CounterSamples.CookedValue
+    
+    #Collect english counters
+    $counters009 = Get-Counters009 -ServerFQDN $server.fqdn
+
+    #Filter counter indexes
+    $procobjectindex = $counters009.IndexOf("Processor".tolower())
+    $proccounterindex = $counters009.IndexOf("% Processor Time".tolower())
+    
+    $memobjectindex = $counters009.IndexOf("Memory".tolower())
+    $memcounterindex = $counters009.IndexOf("Available MBytes".tolower())
+
+    #Collect language specific counters
+    $counterslocal = Get-CountersLocal -ServerFQDN $server.fqdn
+    
+    #Match localized counter - Proc
+    $object = $counterslocal[$procobjectindex]
+    $counter = $counterslocal[$proccounterindex]
+    $cpuTime = (Get-Counter -ComputerName $server.fqdn "\$object(_total)\$counter").CounterSamples.CookedValue
+
+    #Match localized counter - Memory
+    $object = $counterslocal[$memobjectindex]
+    $counter = $counterslocal[$memcounterindex]
+    $availMem = (Get-Counter -ComputerName $server.fqdn "\$object\$counter").CounterSamples.CookedValue
 
     #Collect Pagefile information
     $auto = (Get-CimInstance -ComputerName $server.fqdn Win32_ComputerSystem).AutomaticManagedPagefile
     $initial = (Get-WmiObject -ComputerName $server.fqdn WIN32_Pagefile).initialsize
     $maximum = (Get-WmiObject -ComputerName $server.fqdn WIN32_Pagefile).maximumsize
     
-    #check Ex2019
+    #Check Pagefile for Ex2019
     if ($server.AdminDisplayVersion -like "*15.2*")
     {
         if (($totalRam -le "262144") -and ($totalRam -ge "131072"))
@@ -194,7 +237,7 @@ foreach ($server in $servers)
         }
     }
 
-    #check Ex2013/2016
+    #Check Pagefile for Ex2013/2016
     else
     {
         if ($totalRam -le "196608")
@@ -244,5 +287,6 @@ foreach ($server in $servers)
 }
 Write-Progress -Completed -Activity "Done!"
 
+#Output incl. ESCAPE chars for different colours
 $result | format-table Servername,PhysCores,@{n="LogiCores";e={if($_.CoreDiff -eq 'OK'){"$([char]27)[32m$($_.LogiCores)$([char]27)[0m"}else{"$([char]27)[31m$($_.LogiCores)$([char]27)[0m"}};a='right'},@{n='RAM GB';e={if($_.RAMDiff -eq 'OK'){"$([char]27)[32m$("{0:N0}" -f $_.'RAM GB')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N0}" -f $_.'RAM GB')$([char]27)[0m"}};a='right'},@{n='CPU Util %';e={if($_.'CPU Util %' -le 40){"$([char]27)[32m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N2}" -f $_.'CPU Util %')$([char]27)[0m"}};a="right"},@{n='Avail.Mem GB';e={"{0:N0}" -f $_.'Avail.Mem GB'};a='right'},@{n='Avail.Mem %';e={if($_.'Avail.Mem %' -gt 25){"$([char]27)[32m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}else{"$([char]27)[31m$("{0:N1}" -f $_.'Avail.Mem %')$([char]27)[0m"}};a="right"},SysManaged,InitSize,MaxSize,@{n="Pagefile";e={if($_.pagefile -eq 'OK'){"$([char]27)[32m$($_.pagefile)$([char]27)[0m"}else{"$([char]27)[31m$($_.pagefile)$([char]27)[0m"}};a='right'}
 #END
