@@ -31,13 +31,14 @@
     14.02.2025 V1.1 Minor fixes
     19.02.2025 V1.3 Pagefile, LogicalCores added, Output format changed
     27.02.2025 V1.5 PerfCounter IDs
+    22.05.2025 V1.6 Exchange CPU/RAM counter are collected by invoking a scriptblock
 
 .AUTHOR/COPYRIGHT: Steffen Meyer
 .ROLE: Cloud Solution Architect
 .COMPANY: Microsoft Deutschland GmbH
 
 #>
-$scriptversion = "V1.5_27.02.2025"
+$scriptversion = "V1.6_22.05.2025"
 
 function Get-Counters009
 {
@@ -94,7 +95,8 @@ if ((Get-Host).name -ne 'Windows PowerShell ISE Host')
 {
     if (!(Get-ExchangeServer -Identity $env:COMPUTERNAME -ErrorAction SilentlyContinue))
     {
-        write-host "`nATTENTION: Script is executed on a non-Exchangeserver...`n" -ForegroundColor Cyan
+        write-host "`nATTENTION: Exchange Admin machine detected, this script can only be executed on an Exchangeserver!`n" -ForegroundColor Cyan
+        Return
     }
 }
 else
