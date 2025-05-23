@@ -95,8 +95,7 @@ if ((Get-Host).name -ne 'Windows PowerShell ISE Host')
 {
     if (!(Get-ExchangeServer -Identity $env:COMPUTERNAME -ErrorAction SilentlyContinue))
     {
-        write-host "`nATTENTION: Exchange Admin machine detected, this script can only be executed on an Exchangeserver!`n" -ForegroundColor Cyan
-        Return
+        write-host "`nATTENTION: Script is executed on a non-Exchangeserver...`n" -ForegroundColor Cyan
     }
 }
 else
