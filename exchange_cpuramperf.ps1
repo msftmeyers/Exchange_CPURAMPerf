@@ -31,7 +31,7 @@
     14.02.2025 V1.1 Minor fixes
     19.02.2025 V1.3 Pagefile, LogicalCores added, Output format changed
     27.02.2025 V1.5 PerfCounter IDs
-    22.05.2025 V1.6 Exchange CPU/RAM counter are collected by invoking a scriptblock
+    22.05.2025 V1.6 Exchange CPU/RAM counters are collected by invoking a scriptblock
 
 .AUTHOR/COPYRIGHT: Steffen Meyer
 .ROLE: Cloud Solution Architect
@@ -175,7 +175,7 @@ foreach ($server in $servers)
     #Collect CPU / RAM information
     $CPUProc = Get-CimInstance CIM_Processor -ComputerName $server.fqdn
 
-    $totalphysCores = ($CPUProc | Measure-Object -Property NumberOfEnabledCore -Sum).sum
+    $totalphysCores = ($CPUProc | Measure-Object -Property NumberOfCores -Sum).sum
     $totallogiCores = ($CPUProc | Measure-Object -Property NumberOfLogicalProcessors -Sum).sum
 
     $totalRam = (Get-CimInstance Win32_PhysicalMemory -ComputerName $server.fqdn | Measure-Object -Property capacity -Sum).Sum/1048576
@@ -192,16 +192,28 @@ foreach ($server in $servers)
 
     #Collect language specific counters
     $counterslocal = Get-CountersLocal -ServerFQDN $server.fqdn
+
+    $Scriptblock = {
+        Param($object, $counter)
+        (Get-Counter "\$object(_total)\$counter").CounterSamples.CookedValue
+        }
     
     #Match localized counter - Proc
     $object = $counterslocal[$procobjectindex]
     $counter = $counterslocal[$proccounterindex]
-    $cpuTime = (Get-Counter -ComputerName $server.fqdn "\$object(_total)\$counter").CounterSamples.CookedValue
+
+    $cpuTime = Invoke-Command -ComputerName $server.fqdn -ScriptBlock $Scriptblock -ArgumentList $object, $counter
+
+    $Scriptblock = {
+        Param($object, $counter)
+        (Get-Counter "\$object\$counter").CounterSamples.CookedValue
+        }
 
     #Match localized counter - Memory
     $object = $counterslocal[$memobjectindex]
     $counter = $counterslocal[$memcounterindex]
-    $availMem = (Get-Counter -ComputerName $server.fqdn "\$object\$counter").CounterSamples.CookedValue
+ 
+    $availMem = Invoke-Command -ComputerName $server.fqdn -ScriptBlock $Scriptblock -ArgumentList $object,$counter 
 
     #Collect Pagefile information
     $auto = (Get-CimInstance -ComputerName $server.fqdn Win32_ComputerSystem).AutomaticManagedPagefile
